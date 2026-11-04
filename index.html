@@ -205,38 +205,116 @@ function renderForm(prefill = {}, error = '') {
       <label for="a">Seu usuário do Last.fm</label>
       <input type="text" id="a" value="${esc(prefill.a ?? local.get('me'))}" autocapitalize="none" spellcheck="false" required>
       <label for="b">Usuário da outra pessoa</label>
-      <input type="text" id="b" value="${esc(prefill.b || '')}" autocapitalize="none" spellcheck="false" required>
+      <input type="text" id="b" value="${esc(prefill.b || '')}" autocapitalize="none" spellcheck="false">
       <label>Período</label>
-      <div class="chips">${PERIODS.map(p => `<button type="button" class="chip" data-p="${p.id}" aria-pressed="${p.id === period}">${p.label}</button>`).join('')}</div>
+      ${chips(period)}
       <button class="btn" style="margin-top:20px">Calcular match</button>
-      ${error ? `<p class="error">${esc(error)}</p>` : ''}
+      <button type="button" class="btn ghost" id="invite" style="margin-top:10px">Só gerar meu link de convite</button>
+      <p class="error" id="err">${esc(error)}</p>
     </form>
     <p class="foot">Não tem Last.fm? Crie em last.fm e conecte ao seu Spotify em Configurações → Aplicativos.</p>`);
-  app.querySelectorAll('.chip').forEach(c => c.onclick = () => {
-    period = c.dataset.p;
-    app.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed', x === c));
-  });
+  bindChips(p => period = p);
+  const err = document.getElementById('err');
+  const val = id => document.getElementById(id).value.trim();
   document.getElementById('f').onsubmit = ev => {
     ev.preventDefault();
-    const a = document.getElementById('a').value.trim();
-    const b = document.getElementById('b').value.trim();
-    if (!a || !b) return;
+    const a = val('a'), b = val('b');
+    if (!a) return err.textContent = 'Preencha o seu usuário.';
+    if (!b) return err.textContent = 'Preencha o usuário da outra pessoa, ou gere seu link de convite pra ela preencher.';
     local.set('me', a); local.set('period', period);
     run(a, b, period);
   };
+  document.getElementById('invite').onclick = () => {
+    const a = val('a');
+    if (!a) return err.textContent = 'Preencha o seu usuário pra gerar o link.';
+    local.set('me', a); local.set('period', period);
+    renderMyLink(a, period);
+  };
 }
 
-async function run(a, b, p) {
-  history.replaceState(null, '', `${BASE_URL}?${new URLSearchParams({ a, b, p })}`);
+function chips(period) {
+  return `<div class="chips">${PERIODS.map(p => `<button type="button" class="chip" data-p="${p.id}" aria-pressed="${p.id === period}">${p.label}</button>`).join('')}</div>`;
+}
+function bindChips(onChange) {
+  app.querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    onChange(c.dataset.p);
+    app.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed', x === c));
+  });
+}
+function shareButtons(link, text) {
+  return `<div class="row">
+      <button class="btn" data-copy>Copiar link</button>
+      ${navigator.share ? '<button class="btn ghost" data-share>Compartilhar</button>' : ''}
+    </div>`;
+}
+function bindShare(link, text) {
+  const copy = app.querySelector('[data-copy]');
+  if (copy) copy.onclick = async () => {
+    try { await navigator.clipboard.writeText(link); copy.textContent = 'Copiado!'; }
+    catch { prompt('Copie o link:', link); }
+    setTimeout(() => copy.textContent = 'Copiar link', 2000);
+  };
+  const share = app.querySelector('[data-share]');
+  if (share) share.onclick = () => navigator.share({ title: 'Match Musical', text, url: link }).catch(() => {});
+}
+
+// Tela de quem gera o convite
+async function renderMyLink(a, p) {
+  render(`<div class="spinner"></div><p class="center">Conferindo seu usuário…</p>`);
+  let me;
+  try { me = await loadUser(a, p); } catch (e) { return renderForm({ a, p }, errorMessage(e, a)); }
+  const link = `${BASE_URL}?${new URLSearchParams({ a: me.user, p })}`;
+  render(`
+    <div class="duo">${avatar(me.name, me.img)}</div>
+    <h1 class="center" style="margin-top:12px">Seu link de convite</h1>
+    <p class="center">Mande pra quem você quiser. A pessoa só digita o usuário dela do Last.fm e já vê o match com você.</p>
+    <div class="card">
+      <input type="text" readonly value="${esc(link)}" aria-label="Seu link" style="font-size:.85rem;color:var(--muted)">
+      ${shareButtons()}
+    </div>
+    <button class="btn ghost" id="back" style="margin-top:20px">Voltar</button>`);
+  bindShare(link, `Qual é o nosso match musical? Coloca seu usuário do Last.fm aqui:`);
+  document.getElementById('back').onclick = () => renderForm({ a: me.user, p });
+}
+
+// Tela de quem recebe o convite
+function renderInvite(a, p, error = '') {
+  let period = p;
+  const mine = local.get('me');
+  render(`
+    <h1>${esc(a)} quer saber o match musical de vocês</h1>
+    <p>Digite seu usuário do Last.fm pra comparar os artistas que vocês mais ouvem.</p>
+    <form class="card" id="f" autocomplete="off">
+      <label for="b">Seu usuário do Last.fm</label>
+      <input type="text" id="b" value="${esc(mine && mine.toLowerCase() !== a.toLowerCase() ? mine : '')}" autocapitalize="none" spellcheck="false" required>
+      <label>Período</label>
+      ${chips(period)}
+      <button class="btn" style="margin-top:20px">Ver nosso match</button>
+      <p class="error">${esc(error)}</p>
+    </form>
+    <p class="foot">Não tem Last.fm? Crie em last.fm e conecte ao seu Spotify em Configurações → Aplicativos.</p>`);
+  bindChips(x => period = x);
+  document.getElementById('f').onsubmit = ev => {
+    ev.preventDefault();
+    const b = document.getElementById('b').value.trim();
+    if (!b) return;
+    local.set('me', b);
+    run(a, b, period, true);
+  };
+}
+
+async function run(a, b, p, fromInvite = false) {
+  const back = msg => fromInvite ? renderInvite(a, p, msg) : renderForm({ a, b, p }, msg);
   render(`<div class="spinner"></div><p class="center">Comparando os ouvidos…</p>`);
   let A, B;
-  try { A = await loadUser(a, p); } catch (e) { return renderForm({ a, b, p }, errorMessage(e, a)); }
-  try { B = await loadUser(b, p); } catch (e) { return renderForm({ a, b, p }, errorMessage(e, b)); }
-  if (A.user.toLowerCase() === B.user.toLowerCase()) return renderForm({ a, b: '', p }, 'Coloca o usuário de outra pessoa no segundo campo 😄');
+  try { A = await loadUser(a, p); } catch (e) { return back(errorMessage(e, a)); }
+  try { B = await loadUser(b, p); } catch (e) { return back(errorMessage(e, b)); }
+  if (A.user.toLowerCase() === B.user.toLowerCase()) return back(fromInvite ? 'Esse é o usuário de quem te convidou. Coloca o seu 😄' : 'Coloca o usuário de outra pessoa no segundo campo 😄');
   if (!A.artists.length || !B.artists.length) {
     const empty = !A.artists.length ? A.user : B.user;
-    return renderForm({ a, b, p }, `${empty} não tem scrobbles em "${periodLabel(p)}". Tenta um período maior.`);
+    return back(`${empty} não tem scrobbles em "${periodLabel(p)}". Tenta um período maior.`);
   }
+  history.replaceState(null, '', `${BASE_URL}?${new URLSearchParams({ a: A.user, b: B.user, p })}`);
   renderResult(A, B, p);
 }
 
@@ -260,26 +338,16 @@ function renderResult(A, B, p) {
              </div></li>`).join('')}
          </ul></div>`
       : `<div class="card"><p style="margin:0">Nenhum artista em comum nesse período.</p></div>`}
-    <div class="row" style="margin-top:20px">
-      <button class="btn" id="copy">Copiar link</button>
-      ${navigator.share ? '<button class="btn ghost" id="share">Compartilhar</button>' : ''}
-    </div>
+    <div style="margin-top:20px">${shareButtons()}</div>
     <div class="row">
       <button class="btn ghost" id="other">Trocar período</button>
       <button class="btn ghost" id="new">Novo match</button>
     </div>
     <p class="foot">Baseado nos ${LIMIT} artistas mais ouvidos de cada um no Last.fm.</p>`);
 
-  const copy = document.getElementById('copy');
-  copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(link); copy.textContent = 'Copiado!'; }
-    catch { prompt('Copie o link:', link); }
-    setTimeout(() => copy.textContent = 'Copiar link', 2000);
-  };
-  const share = document.getElementById('share');
-  if (share) share.onclick = () => navigator.share({ title: 'Match Musical', text: `Nosso match musical deu ${pct}%`, url: link }).catch(() => {});
+  bindShare(link, `Nosso match musical deu ${pct}%`);
   document.getElementById('other').onclick = () => renderForm({ a: A.user, b: B.user, p });
-  document.getElementById('new').onclick = () => { history.replaceState(null, '', BASE_URL); renderForm({ a: A.user }); };
+  document.getElementById('new').onclick = () => { history.replaceState(null, '', BASE_URL); renderForm(); };
 
   const ring = document.getElementById('ring'), label = document.getElementById('pct');
   const start = performance.now(), dur = 1200;
@@ -296,7 +364,9 @@ function renderResult(A, B, p) {
   const q = new URLSearchParams(location.search);
   const a = q.get('a'), b = q.get('b');
   const p = PERIODS.some(x => x.id === q.get('p')) ? q.get('p') : '1month';
-  if (a && b) run(a, b, p); else renderForm();
+  if (a && b) run(a, b, p);
+  else if (a) renderInvite(a, p);
+  else renderForm();
 })();
 </script>
 </body>
