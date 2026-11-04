@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Match Musical</title>
-<meta name="description" content="Descubra a porcentagem de match musical entre duas pessoas no Spotify.">
+<meta name="description" content="Descubra a porcentagem de match musical entre duas pessoas pelo Last.fm.">
 <style>
   :root {
     --bg: #0f1012;
@@ -12,62 +12,67 @@
     --line: #2a2d32;
     --text: #f2f3f5;
     --muted: #9aa0a8;
-    --accent: #1ed760;
-    --accent-ink: #062b14;
+    --accent: #ff4d6d;
+    --accent-ink: #2b0710;
     --track: #2a2d32;
-    --danger: #ff6b6b;
+    --danger: #ff8a8a;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--text); }
-  body {
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    line-height: 1.5;
-    min-height: 100vh;
-  }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5; min-height: 100vh; }
   main { max-width: 520px; margin: 0 auto; padding: 32px 16px 48px; }
   h1 { font-size: 1.9rem; line-height: 1.15; margin: 0 0 8px; letter-spacing: -0.02em; }
   h2 { font-size: 1.1rem; margin: 28px 0 12px; }
   p { margin: 0 0 12px; color: var(--muted); }
-  .brand { font-weight: 700; color: var(--accent); font-size: .85rem; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 20px; }
+  .brand { font-weight: 700; color: var(--accent); font-size: .85rem; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 20px; cursor: pointer; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-top: 16px; }
+  label { display: block; font-size: .85rem; color: var(--muted); margin: 14px 0 6px; }
+  input[type=text] {
+    width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--text); font-size: 1rem;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line);
+    background: transparent; color: var(--text); font-size: .9rem; cursor: pointer;
+  }
+  .chip[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
     width: 100%; padding: 14px 18px; border: 0; border-radius: 999px;
-    background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 1rem;
-    cursor: pointer; text-decoration: none;
+    background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 1rem; cursor: pointer;
   }
   .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .6; }
   .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 600; }
   .row { display: flex; gap: 8px; margin-top: 10px; }
   .row .btn { flex: 1; }
-  .share input {
-    width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
-    background: var(--bg); color: var(--muted); font-size: .85rem;
-  }
   .list { list-style: none; padding: 0; margin: 0; }
   .item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .item:last-child { border-bottom: 0; }
   .pos { width: 24px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; flex-shrink: 0; }
   .avatar {
-    width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
-    background: var(--line); display: grid; place-items: center; font-weight: 700; color: var(--muted);
+    width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+    display: grid; place-items: center; font-weight: 800; color: #fff; font-size: 1.1rem;
   }
   .name { font-weight: 600; color: var(--text); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta { font-size: .82rem; color: var(--muted); }
   .grow { min-width: 0; flex: 1; }
-  .ring-wrap { display: grid; place-items: center; margin: 24px 0 8px; }
+  .duo { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 8px; }
+  .duo .avatar { width: 52px; height: 52px; border: 2px solid var(--bg); }
+  .duo .amp { color: var(--muted); font-weight: 700; }
+  .ring-wrap { display: grid; place-items: center; margin: 20px 0 8px; }
   .ring {
-    --p: 0;
-    width: 200px; height: 200px; border-radius: 50%;
+    --p: 0; width: 200px; height: 200px; border-radius: 50%;
     background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--track) 0);
     display: grid; place-items: center; position: relative;
   }
   .ring::before { content: ""; position: absolute; inset: 14px; border-radius: 50%; background: var(--bg); }
   .ring span { position: relative; font-size: 3rem; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
   .verdict { text-align: center; font-size: 1.15rem; font-weight: 700; color: var(--text); margin: 8px 0 4px; }
-  .sub { text-align: center; }
-  .error { color: var(--danger); }
   .center { text-align: center; }
+  .error { color: var(--danger); margin-top: 12px; }
   .spinner {
     width: 40px; height: 40px; border-radius: 50%; margin: 60px auto 16px;
     border: 4px solid var(--track); border-top-color: var(--accent); animation: spin .9s linear infinite;
@@ -81,134 +86,89 @@
 <main id="app"></main>
 <script>
 // ====== CONFIGURAÇÃO ======
-// Cole aqui o Client ID do seu app em developer.spotify.com/dashboard
-const CLIENT_ID = '6c7beddf933449c69f20aac8864afe15';
-// Período: 'short_term' (~4 semanas), 'medium_term' (~6 meses), 'long_term' (~1 ano)
-const TIME_RANGE = 'short_term';
+// Cole aqui a sua API key do Last.fm (last.fm/api/account/create)
+const API_KEY = '0b7a6904d2efddf9d8620f85e611178a';
 const LIMIT = 50;
 // ==========================
 
-const REDIRECT_URI = location.origin + location.pathname.replace(/index\.html$/, '');
-const SCOPES = 'user-top-read';
+const PERIODS = [
+  { id: '7day', label: '7 dias' },
+  { id: '1month', label: '1 mês' },
+  { id: '3month', label: '3 meses' },
+  { id: '12month', label: '1 ano' },
+  { id: 'overall', label: 'Sempre' }
+];
+const BASE_URL = location.origin + location.pathname;
 const app = document.getElementById('app');
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-function b64url(buf) {
-  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  let s = '';
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-const encode = obj => b64url(new TextEncoder().encode(JSON.stringify(obj)));
-function decode(str) {
-  try {
-    const s = str.replace(/-/g, '+').replace(/_/g, '/');
-    const bin = atob(s + '==='.slice((s.length + 3) % 4));
-    return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
-  } catch { return null; }
-}
-
-const store = {
-  get(k) { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch { return null; } },
-  set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch {} },
-  del(k) { try { sessionStorage.removeItem(k); } catch {} }
+const local = {
+  get(k) { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} }
 };
+const periodLabel = id => (PERIODS.find(p => p.id === id) || PERIODS[1]).label;
 
-// ---------- Login (Authorization Code + PKCE, sem servidor) ----------
-async function login() {
-  const verifier = b64url(crypto.getRandomValues(new Uint8Array(64)));
-  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
-  store.set('pkce_verifier', verifier);
-  store.set('oauth_state', state);
-  location.href = 'https://accounts.spotify.com/authorize?' + new URLSearchParams({
-    client_id: CLIENT_ID,
-    response_type: 'code',
-    redirect_uri: REDIRECT_URI,
-    code_challenge_method: 'S256',
-    code_challenge: challenge,
-    scope: SCOPES,
-    state
-  });
+// ---------- Last.fm ----------
+async function lfm(params) {
+  const url = 'https://ws.audioscrobbler.com/2.0/?' + new URLSearchParams({ ...params, api_key: API_KEY, format: 'json' });
+  let r, d;
+  try { r = await fetch(url); d = await r.json(); }
+  catch { const e = new Error('rede'); e.code = 'net'; throw e; }
+  if (d && d.error) { const e = new Error(d.message); e.code = d.error; throw e; }
+  return d;
 }
 
-async function exchange(code) {
-  const r = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: REDIRECT_URI,
-      code_verifier: store.get('pkce_verifier') || ''
-    })
-  });
-  if (!r.ok) { const e = new Error('token'); e.status = r.status; throw e; }
-  return (await r.json()).access_token;
-}
-
-async function api(path, token) {
-  const r = await fetch('https://api.spotify.com/v1' + path, { headers: { Authorization: 'Bearer ' + token } });
-  if (!r.ok) { const e = new Error('api'); e.status = r.status; throw e; }
-  return r.json();
-}
-
-function pickImg(images) {
-  if (!Array.isArray(images) || !images.length) return '';
-  const sorted = [...images].sort((a, b) => (a.width || 0) - (b.width || 0));
-  return (sorted.find(i => (i.width || 0) >= 64) || sorted[sorted.length - 1]).url;
-}
-
-async function loadMe(token) {
-  const [profile, top] = await Promise.all([
-    api('/me', token),
-    api(`/me/top/artists?time_range=${TIME_RANGE}&limit=${LIMIT}`, token)
+async function loadUser(user, period) {
+  const [info, top] = await Promise.all([
+    lfm({ method: 'user.getinfo', user }),
+    lfm({ method: 'user.gettopartists', user, period, limit: LIMIT })
   ]);
+  const u = info.user || {};
+  const imgs = Array.isArray(u.image) ? u.image : [];
+  const img = (imgs.find(i => i.size === 'large') || imgs[imgs.length - 1] || {})['#text'] || '';
+  const list = (top.topartists && top.topartists.artist) || [];
   return {
-    id: profile.id,
-    name: profile.display_name || profile.id,
-    artists: (top.items || []).map(a => ({
-      id: a.id, name: a.name, img: pickImg(a.images), url: a.external_urls && a.external_urls.spotify
-    }))
+    user: u.name || user,
+    name: u.realname || u.name || user,
+    img,
+    artists: (Array.isArray(list) ? list : [list]).map(a => ({ name: a.name, plays: +a.playcount || 0, url: a.url }))
   };
 }
 
-function errorMessage(e) {
-  if (e.status === 403) return 'Sua conta do Spotify ainda não foi liberada neste site. Peça para quem criou o site adicionar o seu e-mail do Spotify na lista de usuários.';
-  if (e.status === 401) return 'A sessão expirou. Entre de novo.';
-  if (e.status === 429) return 'O Spotify está limitando os acessos agora. Tenta de novo em alguns minutos.';
-  if (e.status === 400) return 'Não deu pra concluir o login. Confira se o endereço deste site está cadastrado como Redirect URI no app do Spotify.';
-  return 'Algo deu errado ao falar com o Spotify. Tenta de novo.';
+function errorMessage(e, who) {
+  if (e.code === 6) return `Não encontrei o usuário "${who}" no Last.fm. Confere o nome?`;
+  if (e.code === 10 || e.code === 26) return 'A API key do Last.fm está inválida. Confira a constante API_KEY no arquivo.';
+  if (e.code === 29) return 'Muitas consultas seguidas. Espera um minutinho e tenta de novo.';
+  if (e.code === 17) return `O perfil de "${who}" está privado no Last.fm.`;
+  if (e.code === 'net') return 'Não consegui falar com o Last.fm. Confere a internet e tenta de novo.';
+  return 'Algo deu errado ao buscar os dados. Tenta de novo.';
 }
 
 // ---------- Match ----------
-function weights(ids) {
-  const m = new Map(), N = ids.length;
-  ids.forEach((id, i) => m.set(id, { w: (N - i) / N, rank: i + 1 }));
+function weights(artists) {
+  const m = new Map(), N = artists.length;
+  artists.forEach((a, i) => m.set(a.name.toLowerCase(), { w: (N - i) / N, rank: i + 1, plays: a.plays }));
   return m;
 }
 
-function computeMatch(myArtists, theirIds) {
-  const a = weights(myArtists.map(x => x.id));
-  const b = weights(theirIds);
+function computeMatch(A, B) {
+  const a = weights(A.artists), b = weights(B.artists);
   let shared = 0, total = 0;
   a.forEach(v => total += v.w);
   b.forEach(v => total += v.w);
   const common = [];
-  myArtists.forEach(art => {
-    if (b.has(art.id)) {
-      const wa = a.get(art.id), wb = b.get(art.id);
+  A.artists.forEach(art => {
+    const k = art.name.toLowerCase();
+    if (b.has(k)) {
+      const wa = a.get(k), wb = b.get(k);
       shared += Math.min(wa.w, wb.w);
-      common.push({ ...art, myRank: wa.rank, theirRank: wb.rank, score: wa.w * wb.w });
+      common.push({ ...art, a: wa, b: wb, score: wa.w * wb.w });
     }
   });
   common.sort((x, y) => y.score - x.score);
   const raw = total ? (2 * shared) / total : 0;
-  // curva de raiz: deixa o número mais intuitivo (sobreposição bruta costuma ser baixa)
-  const pct = Math.round(100 * Math.sqrt(raw));
-  return { pct, common };
+  // curva de raiz: a sobreposição bruta costuma ser baixa, isso deixa o número mais intuitivo
+  return { pct: Math.round(100 * Math.sqrt(raw)), common };
 }
 
 function verdict(p) {
@@ -220,121 +180,106 @@ function verdict(p) {
   return 'Mundos opostos';
 }
 
-const inviteLink = me => REDIRECT_URI + '#c=' + encode({ v: 1, u: me.id, n: me.name, ids: me.artists.map(a => a.id) });
-
-function readHashInvite() {
-  const m = location.hash.match(/[#&]c=([^&]+)/);
-  if (!m) return null;
-  const d = decode(m[1]);
-  return d && Array.isArray(d.ids) ? d : null;
+// ---------- Visual ----------
+function hue(str) { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+function avatar(name, img) {
+  if (img) return `<img class="avatar" src="${esc(img)}" alt="">`;
+  return `<div class="avatar" style="background:hsl(${hue(name)} 55% 38%)">${esc((name || '?')[0].toUpperCase())}</div>`;
+}
+function render(html) {
+  app.innerHTML = `<div class="brand" id="home">Match Musical</div>` + html;
+  document.getElementById('home').onclick = () => { history.replaceState(null, '', BASE_URL); renderForm(); };
 }
 
 // ---------- Telas ----------
-function avatar(a) {
-  return a.img
-    ? `<img class="avatar" src="${esc(a.img)}" alt="" loading="lazy">`
-    : `<div class="avatar">${esc((a.name || '?')[0])}</div>`;
-}
-
-function shareBox(me, label) {
-  const link = inviteLink(me);
-  return `
-    <div class="card share">
-      <h2 style="margin-top:0">${esc(label)}</h2>
-      <p>Quem abrir esse link e entrar com o Spotify vê o match com você.</p>
-      <input readonly value="${esc(link)}" aria-label="Seu link">
-      <div class="row">
-        <button class="btn" data-copy>Copiar link</button>
-        ${navigator.share ? '<button class="btn ghost" data-share>Compartilhar</button>' : ''}
-      </div>
-    </div>`;
-}
-
-function bindShare(me) {
-  const link = inviteLink(me);
-  const copy = app.querySelector('[data-copy]');
-  if (copy) copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(link); copy.textContent = 'Copiado!'; }
-    catch { app.querySelector('.share input').select(); copy.textContent = 'Selecionado, copie'; }
-    setTimeout(() => copy.textContent = 'Copiar link', 2000);
-  };
-  const share = app.querySelector('[data-share]');
-  if (share) share.onclick = () => navigator.share({ title: 'Match Musical', text: 'Vê nosso match musical no Spotify:', url: link }).catch(() => {});
-}
-
-function render(html) { app.innerHTML = `<div class="brand">Match Musical</div>` + html; }
-
-function renderLoading(msg) { render(`<div class="spinner"></div><p class="center">${esc(msg)}</p>`); }
-
-function renderError(msg) {
-  render(`
-    <h1>Ops</h1>
-    <p class="error">${esc(msg)}</p>
-    <button class="btn" id="retry" style="margin-top:12px">Tentar de novo</button>`);
-  document.getElementById('retry').onclick = login;
-}
-
 function renderSetup() {
-  render(`
-    <h1>Falta configurar</h1>
-    <p>Abra este arquivo e cole o Client ID do seu app do Spotify na constante <code>CLIENT_ID</code>.</p>
-    <p>Redirect URI para cadastrar no app: <code>${esc(REDIRECT_URI)}</code></p>`);
+  render(`<h1>Falta configurar</h1><p>Abra este arquivo e cole sua API key do Last.fm na constante <code>API_KEY</code>.</p>`);
 }
 
-function renderLanding(invite) {
+function renderForm(prefill = {}, error = '') {
+  let period = prefill.p || local.get('period') || '1month';
   render(`
-    <h1>${invite ? `${esc(invite.n)} quer saber o match musical de vocês` : 'Qual é o seu match musical?'}</h1>
-    <p>A gente compara os artistas que vocês mais ouviram nas últimas semanas no Spotify e calcula a porcentagem de afinidade.</p>
-    <button class="btn" id="login" style="margin-top:16px">Entrar com Spotify</button>
-    <p class="foot">Só lemos seus artistas mais ouvidos. Nada é salvo em servidor.</p>`);
-  document.getElementById('login').onclick = login;
+    <h1>Qual é o match musical de vocês?</h1>
+    <p>Compara os artistas mais ouvidos de duas pessoas no Last.fm e calcula a afinidade.</p>
+    <form class="card" id="f" autocomplete="off">
+      <label for="a">Seu usuário do Last.fm</label>
+      <input type="text" id="a" value="${esc(prefill.a ?? local.get('me'))}" autocapitalize="none" spellcheck="false" required>
+      <label for="b">Usuário da outra pessoa</label>
+      <input type="text" id="b" value="${esc(prefill.b || '')}" autocapitalize="none" spellcheck="false" required>
+      <label>Período</label>
+      <div class="chips">${PERIODS.map(p => `<button type="button" class="chip" data-p="${p.id}" aria-pressed="${p.id === period}">${p.label}</button>`).join('')}</div>
+      <button class="btn" style="margin-top:20px">Calcular match</button>
+      ${error ? `<p class="error">${esc(error)}</p>` : ''}
+    </form>
+    <p class="foot">Não tem Last.fm? Crie em last.fm e conecte ao seu Spotify em Configurações → Aplicativos.</p>`);
+  app.querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    period = c.dataset.p;
+    app.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed', x === c));
+  });
+  document.getElementById('f').onsubmit = ev => {
+    ev.preventDefault();
+    const a = document.getElementById('a').value.trim();
+    const b = document.getElementById('b').value.trim();
+    if (!a || !b) return;
+    local.set('me', a); local.set('period', period);
+    run(a, b, period);
+  };
 }
 
-function renderMine(me) {
-  const top = me.artists.slice(0, 10);
-  render(`
-    <h1>Oi, ${esc(me.name)}</h1>
-    ${me.artists.length
-      ? `<p>Seus artistas mais ouvidos nas últimas semanas:</p>
-         <div class="card"><ul class="list">${top.map((a, i) => `
-           <li class="item"><span class="pos">${i + 1}</span>${avatar(a)}
-             <div class="grow"><a class="name" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)}</a></div></li>`).join('')}
-         </ul></div>
-         ${shareBox(me, 'Mande seu link')}`
-      : `<p>O Spotify ainda não tem dados suficientes das suas últimas semanas. Ouça mais um pouco e volte depois.</p>`}
-    <button class="btn ghost" id="logout" style="margin-top:20px">Sair</button>`);
-  bindShare(me);
-  document.getElementById('logout').onclick = () => { store.del('me'); store.del('invite'); renderLanding(null); };
-}
-
-function renderMatch(me, inv) {
-  if (inv.u === me.id) {
-    store.del('invite');
-    render(`<h1>Esse link é seu</h1><p>Mande para outra pessoa abrir e entrar com a conta dela.</p>${shareBox(me, 'Seu link')}`);
-    bindShare(me);
-    return;
+async function run(a, b, p) {
+  history.replaceState(null, '', `${BASE_URL}?${new URLSearchParams({ a, b, p })}`);
+  render(`<div class="spinner"></div><p class="center">Comparando os ouvidos…</p>`);
+  let A, B;
+  try { A = await loadUser(a, p); } catch (e) { return renderForm({ a, b, p }, errorMessage(e, a)); }
+  try { B = await loadUser(b, p); } catch (e) { return renderForm({ a, b, p }, errorMessage(e, b)); }
+  if (A.user.toLowerCase() === B.user.toLowerCase()) return renderForm({ a, b: '', p }, 'Coloca o usuário de outra pessoa no segundo campo 😄');
+  if (!A.artists.length || !B.artists.length) {
+    const empty = !A.artists.length ? A.user : B.user;
+    return renderForm({ a, b, p }, `${empty} não tem scrobbles em "${periodLabel(p)}". Tenta um período maior.`);
   }
-  const { pct, common } = computeMatch(me.artists, inv.ids);
+  renderResult(A, B, p);
+}
+
+function renderResult(A, B, p) {
+  const { pct, common } = computeMatch(A, B);
+  const link = location.href;
   render(`
-    <h1 class="center">Você e ${esc(inv.n)}</h1>
+    <div class="duo">${avatar(A.name, A.img)}<span class="amp">&</span>${avatar(B.name, B.img)}</div>
+    <h1 class="center" style="margin-top:12px">${esc(A.user)} e ${esc(B.user)}</h1>
+    <p class="center">${periodLabel(p)}</p>
     <div class="ring-wrap"><div class="ring" id="ring"><span id="pct">0%</span></div></div>
     <div class="verdict">${verdict(pct)}</div>
-    <p class="sub">${common.length} ${common.length === 1 ? 'artista em comum' : 'artistas em comum'} no top ${LIMIT} de cada um</p>
+    <p class="center">${common.length} ${common.length === 1 ? 'artista em comum' : 'artistas em comum'} no top ${LIMIT} de cada um</p>
     ${common.length
       ? `<h2>Artistas em comum</h2>
-         <div class="card"><ul class="list">${common.map((a, i) => `
-           <li class="item"><span class="pos">${i + 1}</span>${avatar(a)}
+         <div class="card"><ul class="list">${common.map((c, i) => `
+           <li class="item"><span class="pos">${i + 1}</span>${avatar(c.name)}
              <div class="grow">
-               <a class="name" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.name)}</a>
-               <div class="meta">#${a.myRank} pra você · #${a.theirRank} pra ${esc(inv.n)}</div>
+               <a class="name" href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)}</a>
+               <div class="meta">${esc(A.user)}: #${c.a.rank} · ${c.a.plays} plays &nbsp;|&nbsp; ${esc(B.user)}: #${c.b.rank} · ${c.b.plays} plays</div>
              </div></li>`).join('')}
          </ul></div>`
-      : `<div class="card"><p style="margin:0">Nenhum artista em comum nas últimas semanas.</p></div>`}
-    ${shareBox(me, `Mande o seu link para ${inv.n} ver também`)}
-    <button class="btn ghost" id="again" style="margin-top:20px">Ver só meus artistas</button>
-    <p class="foot">Baseado nos ${LIMIT} artistas mais ouvidos de cada um nas últimas ~4 semanas.</p>`);
-  bindShare(me);
-  document.getElementById('again').onclick = () => { store.del('invite'); history.replaceState(null, '', REDIRECT_URI); renderMine(me); };
+      : `<div class="card"><p style="margin:0">Nenhum artista em comum nesse período.</p></div>`}
+    <div class="row" style="margin-top:20px">
+      <button class="btn" id="copy">Copiar link</button>
+      ${navigator.share ? '<button class="btn ghost" id="share">Compartilhar</button>' : ''}
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="other">Trocar período</button>
+      <button class="btn ghost" id="new">Novo match</button>
+    </div>
+    <p class="foot">Baseado nos ${LIMIT} artistas mais ouvidos de cada um no Last.fm.</p>`);
+
+  const copy = document.getElementById('copy');
+  copy.onclick = async () => {
+    try { await navigator.clipboard.writeText(link); copy.textContent = 'Copiado!'; }
+    catch { prompt('Copie o link:', link); }
+    setTimeout(() => copy.textContent = 'Copiar link', 2000);
+  };
+  const share = document.getElementById('share');
+  if (share) share.onclick = () => navigator.share({ title: 'Match Musical', text: `Nosso match musical deu ${pct}%`, url: link }).catch(() => {});
+  document.getElementById('other').onclick = () => renderForm({ a: A.user, b: B.user, p });
+  document.getElementById('new').onclick = () => { history.replaceState(null, '', BASE_URL); renderForm({ a: A.user }); };
 
   const ring = document.getElementById('ring'), label = document.getElementById('pct');
   const start = performance.now(), dur = 1200;
@@ -346,39 +291,13 @@ function renderMatch(me, inv) {
 }
 
 // ---------- Início ----------
-async function main() {
-  if (CLIENT_ID.startsWith('COLE_')) return renderSetup();
-
-  const hashInvite = readHashInvite();
-  if (hashInvite) store.set('invite', hashInvite);
-
-  const params = new URLSearchParams(location.search);
-  if (params.get('error')) {
-    history.replaceState(null, '', REDIRECT_URI);
-    return renderLanding(store.get('invite'));
-  }
-  if (params.get('code')) {
-    const ok = params.get('state') === store.get('oauth_state');
-    history.replaceState(null, '', REDIRECT_URI);
-    if (!ok) return renderError('O login não pôde ser confirmado. Tenta de novo.');
-    renderLoading('Buscando seus artistas…');
-    try {
-      const token = await exchange(params.get('code'));
-      store.set('me', await loadMe(token));
-    } catch (e) {
-      return renderError(errorMessage(e));
-    } finally {
-      store.del('pkce_verifier'); store.del('oauth_state');
-    }
-  }
-
-  const me = store.get('me');
-  const invite = store.get('invite');
-  if (!me) return renderLanding(invite);
-  invite ? renderMatch(me, invite) : renderMine(me);
-}
-
-main();
+(function main() {
+  if (API_KEY.startsWith('COLE_')) return renderSetup();
+  const q = new URLSearchParams(location.search);
+  const a = q.get('a'), b = q.get('b');
+  const p = PERIODS.some(x => x.id === q.get('p')) ? q.get('p') : '1month';
+  if (a && b) run(a, b, p); else renderForm();
+})();
 </script>
 </body>
 </html>
