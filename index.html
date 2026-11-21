@@ -80,6 +80,14 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .foot { font-size: .78rem; color: var(--muted); margin-top: 28px; text-align: center; }
   code { background: var(--card); padding: 2px 6px; border-radius: 6px; }
+  .poster-wrap { margin-top: 16px; display: grid; place-items: center; }
+  .poster-wrap canvas { width: 100%; max-width: 420px; height: auto; border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0,0,0,.45); transition: opacity .2s; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .sw { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--line); cursor: pointer; padding: 0; }
+  .sw[aria-pressed=true] { outline: 2px solid var(--text); outline-offset: 2px; }
+  input[type=color] { width: 40px; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; padding: 2px; cursor: pointer; }
+  .check { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: .95rem; margin: 14px 0 0; cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -210,6 +218,7 @@ function renderForm(prefill = {}, error = '') {
       ${chips(period)}
       <button class="btn" style="margin-top:20px">Calcular match</button>
       <button type="button" class="btn ghost" id="invite" style="margin-top:10px">Só gerar meu link de convite</button>
+      <button type="button" class="btn ghost" id="poster" style="margin-top:10px">🎨 Gerar imagem dos meus artistas</button>
       <p class="error" id="err">${esc(error)}</p>
     </form>
     <p class="foot">Não tem Last.fm? Crie em last.fm e conecte ao seu Spotify em Configurações → Aplicativos.</p>`);
@@ -229,6 +238,12 @@ function renderForm(prefill = {}, error = '') {
     if (!a) return err.textContent = 'Preencha o seu usuário pra gerar o link.';
     local.set('me', a); local.set('period', period);
     renderMyLink(a, period);
+  };
+  document.getElementById('poster').onclick = () => {
+    const a = val('a');
+    if (!a) return err.textContent = 'Preencha o seu usuário pra gerar a imagem.';
+    local.set('me', a); local.set('period', period);
+    renderPoster(a, period);
   };
 }
 
@@ -358,13 +373,291 @@ function renderResult(A, B, p) {
   })(start);
 }
 
+// ---------- Imagem dos artistas ----------
+const FORMATS = { story: ['Story 9:16', 1920], feed: ['Feed 4:5', 1350], square: ['Quadrado', 1080] };
+const THEMES = {
+  noite: { label: 'Noite', base: '#09090e', ink: '#ffffff', dark: true },
+  grafite: { label: 'Grafite', base: '#17181d', ink: '#ffffff', dark: true },
+  cor: { label: 'Cor', base: null, ink: '#ffffff', dark: true },
+  claro: { label: 'Claro', base: '#f4f0e9', ink: '#15141a', dark: false }
+};
+const SWATCHES = ['#ff4d6d', '#ff8a3d', '#ffd23f', '#3ddc97', '#35b6ff', '#8b5cf6', '#ff5ccf'];
+const POSTER_DEFAULTS = { fmt: 'story', layout: 'ranking', theme: 'noite', n: 8, accent: '#ff4d6d', plays: true, avatar: true, title: 'Meus artistas do momento' };
+
+const hexRgb = h => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const rgba = (h, a) => { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; };
+const lum = h => { const [r, g, b] = hexRgb(h); return (0.299 * r + 0.587 * g + 0.114 * b) / 255; };
+function hexHue(h) {
+  const [r, g, b] = hexRgb(h).map(v => v / 255), mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+  if (!d) return 0;
+  const x = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (x * 60 + 360) % 360;
+}
+function hsl(h, s, l) { // -> #rrggbb
+  h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))));
+  return '#' + [f(0), f(8), f(4)].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+const FONT = (w, s) => `${w} ${Math.round(s)}px system-ui, "Segoe UI", Roboto, sans-serif`;
+function rr(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function spaced(ctx, px) { if ('letterSpacing' in ctx) ctx.letterSpacing = px + 'px'; }
+function fitSize(ctx, text, maxW, size, min, weight) {
+  while (size > min) { ctx.font = FONT(weight, size); if (ctx.measureText(text).width <= maxW) break; size -= 2; }
+  ctx.font = FONT(weight, size); return size;
+}
+function wrapWords(ctx, text, maxW) {
+  const out = []; let line = '';
+  for (const w of String(text).split(/\s+/).filter(Boolean)) {
+    const t = line ? line + ' ' + w : w;
+    if (ctx.measureText(t).width <= maxW || !line) line = t; else { out.push(line); line = w; }
+  }
+  if (line) out.push(line); return out;
+}
+function wrapFit(ctx, text, maxW, maxLines, size, min, weight) {
+  for (let s = size; s >= min; s -= 2) {
+    ctx.font = FONT(weight, s);
+    const lines = wrapWords(ctx, text, maxW);
+    if (lines.length <= maxLines && lines.every(l => ctx.measureText(l).width <= maxW)) return { lines, size: s };
+  }
+  ctx.font = FONT(weight, min);
+  const all = wrapWords(ctx, text, maxW), lines = all.slice(0, maxLines);
+  if (all.length > maxLines) lines[maxLines - 1] += '…';
+  return { lines: lines.map(l => { while (l.length > 1 && ctx.measureText(l).width > maxW) l = l.slice(0, -2) + '…'; return l; }), size: min };
+}
+function glow(ctx, x, y, r, hex, a) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, rgba(hex, a)); g.addColorStop(1, rgba(hex, 0));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+}
+function loadImg(url) {
+  return new Promise(res => {
+    if (!url) return res(null);
+    const i = new Image(); i.crossOrigin = 'anonymous';
+    const t = setTimeout(() => res(null), 4000); // não deixa a foto travar a tela
+    i.onload = () => { clearTimeout(t); res(i); }; i.onerror = () => { clearTimeout(t); res(null); }; i.src = url;
+  });
+}
+
+function drawPoster(cv, d, s, avatarImg) {
+  const W = 1080, H = FORMATS[s.fmt][1], P = 84, story = s.fmt === 'story';
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d'), T = THEMES[s.theme] || THEMES.noite, acc = s.accent, h = hexHue(acc);
+  const items = d.artists.slice(0, s.n);
+
+  // fundo
+  ctx.fillStyle = T.base || hsl(h, 45, 8); ctx.fillRect(0, 0, W, H);
+  glow(ctx, W * 0.95, H * 0.02, W * 1.0, acc, T.dark ? 0.5 : 0.38);
+  glow(ctx, -W * 0.1, H * 0.98, W * 0.95, hsl(h + 70, 85, 58), T.dark ? 0.35 : 0.28);
+  glow(ctx, W * 0.5, H * 0.5, W * 0.7, acc, 0.07);
+
+  // cabeçalho
+  let y = story ? 150 : 84;
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  const tag = `TOP ARTISTAS · ${periodLabel(s.p).toUpperCase()}`;
+  ctx.font = FONT(700, 26); spaced(ctx, 4);
+  const tw = ctx.measureText(tag).width + 56;
+  rr(ctx, P, y, tw, 56, 28); ctx.fillStyle = rgba(acc, 0.18); ctx.fill();
+  ctx.strokeStyle = rgba(acc, 0.55); ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = T.dark ? acc : hsl(h, 70, 35); ctx.fillText(tag, P + 28, y + 37);
+  spaced(ctx, 0); y += 56 + (story ? 48 : 34);
+
+  const title = wrapFit(ctx, s.title || ' ', W - 2 * P, 2, story ? 108 : 80, 48, 900);
+  spaced(ctx, -2); ctx.fillStyle = T.ink;
+  title.lines.forEach((l, i) => ctx.fillText(l, P, y + title.size * 0.86 + i * title.size * 1.04));
+  spaced(ctx, 0); y += title.lines.length * title.size * 1.04 + 24;
+
+  const av = story ? 72 : 60;
+  if (s.avatar) {
+    ctx.save(); ctx.beginPath(); ctx.arc(P + av / 2, y + av / 2, av / 2, 0, Math.PI * 2); ctx.clip();
+    if (avatarImg) ctx.drawImage(avatarImg, P, y, av, av);
+    else { ctx.fillStyle = acc; ctx.fillRect(P, y, av, av); ctx.fillStyle = lum(acc) > 0.62 ? '#111' : '#fff'; ctx.font = FONT(800, av * 0.5); ctx.textAlign = 'center'; ctx.fillText((d.user[0] || '?').toUpperCase(), P + av / 2, y + av * 0.68); }
+    ctx.restore(); ctx.textAlign = 'left';
+  }
+  ctx.fillStyle = T.ink; ctx.font = FONT(700, av * 0.5);
+  ctx.fillText('@' + d.user, P + (s.avatar ? av + 20 : 0), y + av * 0.66);
+  y += av + (story ? 44 : 30);
+
+  // rodapé
+  const footY = H - (story ? 150 : 64);
+  ctx.font = FONT(600, 26); ctx.fillStyle = T.dark ? 'rgba(255,255,255,.5)' : 'rgba(20,19,26,.5)';
+  ctx.fillText('last.fm', P, footY);
+  ctx.textAlign = 'right'; ctx.fillText('Match Musical', W - P, footY); ctx.textAlign = 'left';
+
+  const top = y, bottom = footY - 50, availH = bottom - top, fullW = W - 2 * P;
+  if (!items.length) return;
+
+  if (s.layout === 'mosaico') {
+    const gap = 20, rows = [[0]];
+    for (let i = 1; i < items.length; i += 2) rows.push(i + 1 < items.length ? [i, i + 1] : [i]);
+    const wts = rows.map((_, i) => i === 0 ? 1.5 : 1), unit = (availH - gap * (rows.length - 1)) / wts.reduce((a, b) => a + b, 0);
+    let ry = top;
+    rows.forEach((r, ri) => {
+      const rh = unit * wts[ri], tw = r.length === 1 ? fullW : (fullW - gap) / 2;
+      r.forEach((idx, ci) => {
+        const a = items[idx], x = P + ci * (tw + gap), first = idx === 0;
+        const th = first ? h : h + (hue(a.name) % 100) - 30;
+        const g = ctx.createLinearGradient(x, ry, x + tw, ry + rh);
+        g.addColorStop(0, first ? acc : hsl(th, 72, 50)); g.addColorStop(1, first ? hsl(h + 45, 80, 40) : hsl(th + 30, 75, 34));
+        ctx.save(); rr(ctx, x, ry, tw, rh, 36); ctx.clip();
+        ctx.fillStyle = g; ctx.fillRect(x, ry, tw, rh);
+        ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.font = FONT(900, Math.min(rh * 0.75, 300)); ctx.textAlign = 'right';
+        ctx.fillText(String(idx + 1), x + tw - 24, ry + Math.min(rh * 0.7, 250));
+        ctx.textAlign = 'left';
+        const sh = ctx.createLinearGradient(0, ry + rh * 0.35, 0, ry + rh);
+        sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,.5)');
+        ctx.fillStyle = sh; ctx.fillRect(x, ry, tw, rh);
+        const fg = first && lum(acc) > 0.7 ? '#111' : '#fff';
+        const room = rh - 60 - (s.plays ? 44 : 0), maxL = Math.max(1, Math.min(2, Math.floor(room / 56)));
+        const nm = wrapFit(ctx, a.name, tw - 56, maxL, Math.min(first ? 88 : 54, room / maxL / 1.05), 22, 800);
+        const pb = ry + rh - 30, nb = pb - (s.plays ? 44 : 0) - (nm.lines.length - 1) * nm.size * 1.05;
+        ctx.fillStyle = fg; ctx.font = FONT(800, nm.size);
+        nm.lines.forEach((l, i) => ctx.fillText(l, x + 28, nb + i * nm.size * 1.05));
+        if (s.plays) { ctx.globalAlpha = 0.85; ctx.font = FONT(600, first ? 32 : 26); ctx.fillText(`${a.plays.toLocaleString('pt-BR')} plays`, x + 28, pb); ctx.globalAlpha = 1; }
+        ctx.restore();
+      });
+      ry += rh + gap;
+    });
+    return;
+  }
+
+  // ranking
+  const gap = 14, n = items.length, rowH = Math.min(200, (availH - gap * (n - 1)) / n), max = items[0].plays || 1;
+  items.forEach((a, i) => {
+    const rx = P, ry = top + i * (rowH + gap), first = i === 0, pad = 34;
+    rr(ctx, rx, ry, fullW, rowH, Math.min(28, rowH / 2.4));
+    if (first) {
+      const g = ctx.createLinearGradient(rx, ry, rx + fullW, ry);
+      g.addColorStop(0, acc); g.addColorStop(1, hsl(h + 45, 85, 55)); ctx.fillStyle = g;
+    } else ctx.fillStyle = T.dark ? 'rgba(255,255,255,.07)' : 'rgba(20,19,26,.06)';
+    ctx.fill();
+    const fg = first ? (lum(acc) > 0.62 ? '#111' : '#fff') : T.ink;
+    const rs = rowH * 0.4; ctx.font = FONT(900, rs);
+    ctx.fillStyle = first ? fg : (T.dark ? acc : hsl(h, 70, 40));
+    ctx.fillText(String(i + 1).padStart(2, '0'), rx + pad, ry + rowH / 2 + rs * 0.35);
+    const nx = rx + pad + ctx.measureText('00').width + 28;
+    let pw = 0, ptxt = '';
+    if (s.plays) { ptxt = `${a.plays.toLocaleString('pt-BR')} plays`; ctx.font = FONT(600, Math.max(20, Math.min(30, rowH * 0.22))); pw = ctx.measureText(ptxt).width + 24; }
+    const bar = s.plays && rowH >= 96, nameMax = rx + fullW - pad - nx - pw;
+    fitSize(ctx, a.name, nameMax, Math.min(first ? 68 : 54, rowH * (first ? 0.4 : 0.34)), 22, 800);
+    ctx.fillStyle = fg;
+    ctx.fillText(a.name, nx, bar ? ry + rowH * 0.47 : ry + rowH / 2 + rowH * 0.12);
+    if (bar) {
+      const bw = rx + fullW - pad - nx - pw, by = ry + rowH * 0.64;
+      rr(ctx, nx, by, bw, 8, 4); ctx.fillStyle = first ? 'rgba(0,0,0,.18)' : (T.dark ? 'rgba(255,255,255,.12)' : 'rgba(20,19,26,.1)'); ctx.fill();
+      rr(ctx, nx, by, Math.max(10, bw * a.plays / max), 8, 4); ctx.fillStyle = first ? fg : acc; ctx.fill();
+    }
+    if (s.plays) {
+      ctx.font = FONT(600, Math.max(20, Math.min(30, rowH * 0.22))); ctx.textAlign = 'right';
+      ctx.globalAlpha = 0.75; ctx.fillStyle = fg;
+      ctx.fillText(ptxt, rx + fullW - pad, ry + rowH / 2 + rowH * 0.09);
+      ctx.globalAlpha = 1; ctx.textAlign = 'left';
+    }
+  });
+}
+
+async function renderPoster(a, p) {
+  render(`<div class="spinner"></div><p class="center">Buscando seus artistas…</p>`);
+  let d;
+  try { d = await loadUser(a, p); } catch (e) { return renderForm({ a, p }, errorMessage(e, a)); }
+  if (!d.artists.length) return renderForm({ a, p }, `${d.user} não tem scrobbles em "${periodLabel(p)}". Tenta um período maior.`);
+  history.replaceState(null, '', `${BASE_URL}?${new URLSearchParams({ v: 'img', a: d.user, p })}`);
+  let s;
+  try { s = { ...POSTER_DEFAULTS, ...JSON.parse(local.get('poster') || '{}') }; } catch { s = { ...POSTER_DEFAULTS }; }
+  s.p = p;
+  const avatarImg = await loadImg(d.img);
+
+  const seg = (k, label, opts) => `<label>${label}</label><div class="chips" data-k="${k}">${opts.map(([v, l]) =>
+    `<button type="button" class="chip" data-v="${v}" aria-pressed="${String(v) === String(s[k])}">${l}</button>`).join('')}</div>`;
+  render(`
+    <h1 class="center">Seu top de artistas</h1>
+    <p class="center">Monte a imagem do jeito que quiser e baixe pra postar.</p>
+    <div class="poster-wrap"><canvas id="cv" aria-label="Prévia da imagem"></canvas></div>
+    <div class="row">
+      <button class="btn" id="dl">Baixar PNG</button>
+      ${navigator.share ? '<button class="btn ghost" id="sh">Compartilhar</button>' : ''}
+    </div>
+    <p class="error" id="msg"></p>
+    <div class="card" id="ctl">
+      <label for="t">Título</label>
+      <input type="text" id="t" maxlength="40" value="${esc(s.title)}" spellcheck="false">
+      ${seg('p', 'Período', PERIODS.map(x => [x.id, x.label]))}
+      ${seg('fmt', 'Formato', Object.entries(FORMATS).map(([k, v]) => [k, v[0]]))}
+      ${seg('layout', 'Layout', [['ranking', 'Ranking'], ['mosaico', 'Mosaico']])}
+      ${seg('n', 'Quantidade de artistas', [[5, '5'], [8, '8'], [10, '10']])}
+      ${seg('theme', 'Tema', Object.entries(THEMES).map(([k, v]) => [k, v.label]))}
+      <label>Cor de destaque</label>
+      <div class="swatches" id="sws">
+        ${SWATCHES.map(c => `<button type="button" class="sw" data-c="${c}" style="background:${c}" aria-label="${c}" aria-pressed="${c === s.accent}"></button>`).join('')}
+        <input type="color" id="col" value="${s.accent}" aria-label="Cor personalizada">
+      </div>
+      <label class="check"><input type="checkbox" id="pl" ${s.plays ? 'checked' : ''}> Mostrar quantidade de plays</label>
+      <label class="check"><input type="checkbox" id="av" ${s.avatar ? 'checked' : ''}> Mostrar minha foto</label>
+    </div>
+    <button class="btn ghost" id="back" style="margin-top:20px">Voltar</button>`);
+
+  const cv = document.getElementById('cv'), msg = document.getElementById('msg'), ctl = document.getElementById('ctl');
+  const draw = () => drawPoster(cv, d, s, avatarImg);
+  const save = () => local.set('poster', JSON.stringify({ ...s, p: undefined }));
+  const press = (sel, test) => ctl.querySelectorAll(sel).forEach(b => b.setAttribute('aria-pressed', test(b)));
+  draw();
+
+  ctl.addEventListener('click', async ev => {
+    const sw = ev.target.closest('.sw'), chip = ev.target.closest('.chip');
+    if (sw) {
+      s.accent = sw.dataset.c; document.getElementById('col').value = s.accent;
+      press('.sw', b => b === sw); save(); return draw();
+    }
+    if (!chip) return;
+    const k = chip.parentElement.dataset.k, v = chip.dataset.v;
+    if (k === 'p') {
+      msg.textContent = ''; cv.style.opacity = 0.4;
+      try {
+        const nd = await loadUser(d.user, v);
+        if (!nd.artists.length) throw Object.assign(new Error('vazio'), { code: 'empty' });
+        d = nd; s.p = v; history.replaceState(null, '', `${BASE_URL}?${new URLSearchParams({ v: 'img', a: d.user, p: v })}`);
+        press(`[data-k=p] .chip`, b => b === chip); draw();
+      } catch (e) { msg.textContent = e.code === 'empty' ? `Sem scrobbles em "${periodLabel(v)}". Tenta outro período.` : errorMessage(e, d.user); }
+      cv.style.opacity = 1; return;
+    }
+    s[k] = k === 'n' ? +v : v; save();
+    press(`[data-k=${k}] .chip`, b => b === chip); draw();
+  });
+  document.getElementById('t').oninput = e => { s.title = e.target.value; save(); draw(); };
+  document.getElementById('col').oninput = e => { s.accent = e.target.value; press('.sw', () => false); save(); draw(); };
+  document.getElementById('pl').onchange = e => { s.plays = e.target.checked; save(); draw(); };
+  document.getElementById('av').onchange = e => { s.avatar = e.target.checked; save(); draw(); };
+
+  const toBlob = () => new Promise(r => cv.toBlob(r, 'image/png'));
+  const fname = () => `top-artistas-${d.user}.png`;
+  async function download() {
+    const b = await toBlob(); if (!b) return msg.textContent = 'Não consegui gerar a imagem.';
+    const u = URL.createObjectURL(b), l = document.createElement('a');
+    l.href = u; l.download = fname(); l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000);
+  }
+  document.getElementById('dl').onclick = download;
+  const sh = document.getElementById('sh');
+  if (sh) sh.onclick = async () => {
+    const b = await toBlob(); if (!b) return;
+    const f = new File([b], fname(), { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [f] })) navigator.share({ files: [f], title: 'Meus artistas do momento' }).catch(() => {});
+    else download();
+  };
+  document.getElementById('back').onclick = () => { history.replaceState(null, '', BASE_URL); renderForm({ a: d.user, p: s.p }); };
+}
+
 // ---------- Início ----------
 (function main() {
   if (API_KEY.startsWith('COLE_')) return renderSetup();
   const q = new URLSearchParams(location.search);
   const a = q.get('a'), b = q.get('b');
   const p = PERIODS.some(x => x.id === q.get('p')) ? q.get('p') : '1month';
-  if (a && b) run(a, b, p);
+  if (a && q.get('v') === 'img') renderPoster(a, p);
+  else if (a && b) run(a, b, p);
   else if (a) renderInvite(a, p);
   else renderForm();
 })();
