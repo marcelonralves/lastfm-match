@@ -205,45 +205,49 @@ function renderSetup() {
 }
 
 function renderForm(prefill = {}, error = '') {
-  let period = prefill.p || local.get('period') || '1month';
+  let period = prefill.p || local.get('period') || '7day';
+  const open = !!prefill.b;
   render(`
-    <h1>Qual é o match musical de vocês?</h1>
-    <p>Compara os artistas mais ouvidos de duas pessoas no Last.fm e calcula a afinidade.</p>
+    <h1>Seus álbuns mais ouvidos</h1>
+    <p>Informe seu usuário do Last.fm e gere uma imagem moderna com as capas do que você mais ouviu, pronta pra exportar.</p>
     <form class="card" id="f" autocomplete="off">
       <label for="a">Seu usuário do Last.fm</label>
       <input type="text" id="a" value="${esc(prefill.a ?? local.get('me'))}" autocapitalize="none" spellcheck="false" required>
-      <label for="b">Usuário da outra pessoa</label>
-      <input type="text" id="b" value="${esc(prefill.b || '')}" autocapitalize="none" spellcheck="false">
       <label>Período</label>
       ${chips(period)}
-      <button class="btn" style="margin-top:20px">Calcular match</button>
-      <button type="button" class="btn ghost" id="invite" style="margin-top:10px">Só gerar meu link de convite</button>
-      <button type="button" class="btn ghost" id="poster" style="margin-top:10px">🎨 Gerar imagem dos meus artistas</button>
+      <button class="btn" style="margin-top:20px">🎨 Gerar imagem dos meus álbuns</button>
+      <button type="button" class="btn ghost" id="cmpToggle" style="margin-top:10px" aria-expanded="${open}">Comparar com outra pessoa</button>
+      <div id="cmp" ${open ? '' : 'hidden'}>
+        <label for="b">Usuário da outra pessoa</label>
+        <input type="text" id="b" value="${esc(prefill.b || '')}" autocapitalize="none" spellcheck="false">
+        <button type="button" class="btn" id="go" style="margin-top:14px">Calcular match</button>
+        <button type="button" class="btn ghost" id="invite" style="margin-top:10px">Só gerar meu link de convite</button>
+      </div>
       <p class="error" id="err">${esc(error)}</p>
     </form>
     <p class="foot">Não tem Last.fm? Crie em last.fm e conecte ao seu Spotify em Configurações → Aplicativos.</p>`);
   bindChips(p => period = p);
   const err = document.getElementById('err');
   const val = id => document.getElementById(id).value.trim();
+  const save = a => { local.set('me', a); local.set('period', period); };
   document.getElementById('f').onsubmit = ev => {
     ev.preventDefault();
+    const a = val('a');
+    if (!a) return err.textContent = 'Preencha o seu usuário.';
+    save(a); renderPoster(a, period);
+  };
+  const tg = document.getElementById('cmpToggle'), cmp = document.getElementById('cmp');
+  tg.onclick = () => { cmp.hidden = !cmp.hidden; tg.setAttribute('aria-expanded', !cmp.hidden); if (!cmp.hidden) document.getElementById('b').focus(); };
+  document.getElementById('go').onclick = () => {
     const a = val('a'), b = val('b');
     if (!a) return err.textContent = 'Preencha o seu usuário.';
     if (!b) return err.textContent = 'Preencha o usuário da outra pessoa, ou gere seu link de convite pra ela preencher.';
-    local.set('me', a); local.set('period', period);
-    run(a, b, period);
+    save(a); run(a, b, period);
   };
   document.getElementById('invite').onclick = () => {
     const a = val('a');
     if (!a) return err.textContent = 'Preencha o seu usuário pra gerar o link.';
-    local.set('me', a); local.set('period', period);
-    renderMyLink(a, period);
-  };
-  document.getElementById('poster').onclick = () => {
-    const a = val('a');
-    if (!a) return err.textContent = 'Preencha o seu usuário pra gerar a imagem.';
-    local.set('me', a); local.set('period', period);
-    renderPoster(a, period);
+    save(a); renderMyLink(a, period);
   };
 }
 
@@ -382,7 +386,7 @@ const THEMES = {
   claro: { label: 'Claro', base: '#f4f0e9', ink: '#15141a', dark: false }
 };
 const SWATCHES = ['#ff4d6d', '#ff8a3d', '#ffd23f', '#3ddc97', '#35b6ff', '#8b5cf6', '#ff5ccf'];
-const POSTER_DEFAULTS = { fmt: 'story', layout: 'ranking', theme: 'noite', n: 8, accent: '#ff4d6d', plays: true, avatar: true, title: 'Meus artistas do momento' };
+const POSTER_DEFAULTS = { fmt: 'story', layout: 'grade', theme: 'noite', n: 9, accent: '#ff4d6d', plays: true, names: true, avatar: true, title: 'Meus álbuns da semana' };
 
 const hexRgb = h => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 const rgba = (h, a) => { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; };
@@ -443,11 +447,41 @@ function loadImg(url) {
   });
 }
 
-function drawPoster(cv, d, s, avatarImg) {
+const clip = (ctx, t, maxW) => { t = String(t); while (t.length > 1 && ctx.measureText(t).width > maxW) t = t.slice(0, -2) + '…'; return t; };
+
+async function loadAlbums(user, period) {
+  const [info, top] = await Promise.all([
+    lfm({ method: 'user.getinfo', user }),
+    lfm({ method: 'user.gettopalbums', user, period, limit: 10 })
+  ]);
+  const u = info.user || {}, imgs = Array.isArray(u.image) ? u.image : [];
+  const pick = list => (list.find(i => i.size === 'extralarge') || list.find(i => i.size === 'large') || list[list.length - 1] || {})['#text'] || '';
+  const raw = (top.topalbums && top.topalbums.album) || [];
+  const albums = (Array.isArray(raw) ? raw : [raw]).map(a => {
+    const url = pick(Array.isArray(a.image) ? a.image : []);
+    return { name: a.name, artist: (a.artist && a.artist.name) || '', plays: +a.playcount || 0, img: url.includes('2a96cbd8b46e442fc41c2b86b821562f') ? '' : url };
+  });
+  const [avEl] = await Promise.all([loadImg(pick(imgs)), ...albums.map(async al => { al.el = await loadImg(al.img); })]);
+  return { user: u.name || user, avEl, albums };
+}
+
+function drawCover(ctx, al, x, y, sz, r, h) {
+  ctx.save(); rr(ctx, x, y, sz, sz, r); ctx.clip();
+  if (al.el) ctx.drawImage(al.el, x, y, sz, sz);
+  else {
+    const th = h + (hue(al.name) % 120);
+    const g = ctx.createLinearGradient(x, y, x + sz, y + sz); g.addColorStop(0, hsl(th, 70, 48)); g.addColorStop(1, hsl(th + 40, 70, 28));
+    ctx.fillStyle = g; ctx.fillRect(x, y, sz, sz);
+    ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = FONT(900, sz * 0.42); ctx.textAlign = 'center'; ctx.fillText('♪', x + sz / 2, y + sz * 0.64); ctx.textAlign = 'left';
+  }
+  ctx.restore();
+}
+
+function drawPoster(cv, d, s) {
   const W = 1080, H = FORMATS[s.fmt][1], P = 84, story = s.fmt === 'story';
   cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d'), T = THEMES[s.theme] || THEMES.noite, acc = s.accent, h = hexHue(acc);
-  const items = d.artists.slice(0, s.n);
+  const items = d.albums.slice(0, s.n);
 
   // fundo
   ctx.fillStyle = T.base || hsl(h, 45, 8); ctx.fillRect(0, 0, W, H);
@@ -458,7 +492,7 @@ function drawPoster(cv, d, s, avatarImg) {
   // cabeçalho
   let y = story ? 150 : 84;
   ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-  const tag = `TOP ARTISTAS · ${periodLabel(s.p).toUpperCase()}`;
+  const tag = `TOP ÁLBUNS · ${periodLabel(s.p).toUpperCase()}`;
   ctx.font = FONT(700, 26); spaced(ctx, 4);
   const tw = ctx.measureText(tag).width + 56;
   rr(ctx, P, y, tw, 56, 28); ctx.fillStyle = rgba(acc, 0.18); ctx.fill();
@@ -474,7 +508,7 @@ function drawPoster(cv, d, s, avatarImg) {
   const av = story ? 72 : 60;
   if (s.avatar) {
     ctx.save(); ctx.beginPath(); ctx.arc(P + av / 2, y + av / 2, av / 2, 0, Math.PI * 2); ctx.clip();
-    if (avatarImg) ctx.drawImage(avatarImg, P, y, av, av);
+    if (d.avEl) ctx.drawImage(d.avEl, P, y, av, av);
     else { ctx.fillStyle = acc; ctx.fillRect(P, y, av, av); ctx.fillStyle = lum(acc) > 0.62 ? '#111' : '#fff'; ctx.font = FONT(800, av * 0.5); ctx.textAlign = 'center'; ctx.fillText((d.user[0] || '?').toUpperCase(), P + av / 2, y + av * 0.68); }
     ctx.restore(); ctx.textAlign = 'left';
   }
@@ -488,94 +522,84 @@ function drawPoster(cv, d, s, avatarImg) {
   ctx.fillText('last.fm', P, footY);
   ctx.textAlign = 'right'; ctx.fillText('Match Musical', W - P, footY); ctx.textAlign = 'left';
 
-  const top = y, bottom = footY - 50, availH = bottom - top, fullW = W - 2 * P;
-  if (!items.length) return;
+  const top = y, availH = footY - 50 - top, fullW = W - 2 * P, n = items.length;
+  if (!n) return;
 
-  if (s.layout === 'mosaico') {
-    const gap = 20, rows = [[0]];
-    for (let i = 1; i < items.length; i += 2) rows.push(i + 1 < items.length ? [i, i + 1] : [i]);
-    const wts = rows.map((_, i) => i === 0 ? 1.5 : 1), unit = (availH - gap * (rows.length - 1)) / wts.reduce((a, b) => a + b, 0);
-    let ry = top;
-    rows.forEach((r, ri) => {
-      const rh = unit * wts[ri], tw = r.length === 1 ? fullW : (fullW - gap) / 2;
-      r.forEach((idx, ci) => {
-        const a = items[idx], x = P + ci * (tw + gap), first = idx === 0;
-        const th = first ? h : h + (hue(a.name) % 100) - 30;
-        const g = ctx.createLinearGradient(x, ry, x + tw, ry + rh);
-        g.addColorStop(0, first ? acc : hsl(th, 72, 50)); g.addColorStop(1, first ? hsl(h + 45, 80, 40) : hsl(th + 30, 75, 34));
-        ctx.save(); rr(ctx, x, ry, tw, rh, 36); ctx.clip();
-        ctx.fillStyle = g; ctx.fillRect(x, ry, tw, rh);
-        ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.font = FONT(900, Math.min(rh * 0.75, 300)); ctx.textAlign = 'right';
-        ctx.fillText(String(idx + 1), x + tw - 24, ry + Math.min(rh * 0.7, 250));
-        ctx.textAlign = 'left';
-        const sh = ctx.createLinearGradient(0, ry + rh * 0.35, 0, ry + rh);
-        sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,.5)');
-        ctx.fillStyle = sh; ctx.fillRect(x, ry, tw, rh);
-        const fg = first && lum(acc) > 0.7 ? '#111' : '#fff';
-        const room = rh - 60 - (s.plays ? 44 : 0), maxL = Math.max(1, Math.min(2, Math.floor(room / 56)));
-        const nm = wrapFit(ctx, a.name, tw - 56, maxL, Math.min(first ? 88 : 54, room / maxL / 1.05), 22, 800);
-        const pb = ry + rh - 30, nb = pb - (s.plays ? 44 : 0) - (nm.lines.length - 1) * nm.size * 1.05;
-        ctx.fillStyle = fg; ctx.font = FONT(800, nm.size);
-        nm.lines.forEach((l, i) => ctx.fillText(l, x + 28, nb + i * nm.size * 1.05));
-        if (s.plays) { ctx.globalAlpha = 0.85; ctx.font = FONT(600, first ? 32 : 26); ctx.fillText(`${a.plays.toLocaleString('pt-BR')} plays`, x + 28, pb); ctx.globalAlpha = 1; }
-        ctx.restore();
-      });
-      ry += rh + gap;
+  if (s.layout === 'lista') {
+    const gap = 14, rowH = Math.min(170, (availH - gap * (n - 1)) / n);
+    items.forEach((a, i) => {
+      const rx = P, ry = top + i * (rowH + gap), first = i === 0, pad = 14;
+      rr(ctx, rx, ry, fullW, rowH, Math.min(28, rowH / 2.4));
+      if (first) {
+        const g = ctx.createLinearGradient(rx, ry, rx + fullW, ry);
+        g.addColorStop(0, acc); g.addColorStop(1, hsl(h + 45, 85, 55)); ctx.fillStyle = g;
+      } else ctx.fillStyle = T.dark ? 'rgba(255,255,255,.07)' : 'rgba(20,19,26,.06)';
+      ctx.fill();
+      const fg = first ? (lum(acc) > 0.62 ? '#111' : '#fff') : T.ink;
+      const rs = Math.min(rowH * 0.36, 52); ctx.font = FONT(900, rs);
+      ctx.fillStyle = first ? fg : (T.dark ? acc : hsl(h, 70, 40));
+      const rw = ctx.measureText('00').width;
+      ctx.fillText(String(i + 1).padStart(2, '0'), rx + 26, ry + rowH / 2 + rs * 0.35);
+      const th = rowH - pad * 2, cx = rx + 26 + rw + 20;
+      drawCover(ctx, a, cx, ry + pad, th, Math.min(16, th / 6), h);
+      const tx = cx + th + 22;
+      let pw = 0, ptxt = '', ps = Math.max(20, Math.min(28, rowH * 0.2));
+      if (s.plays) { ptxt = `${a.plays.toLocaleString('pt-BR')} plays`; ctx.font = FONT(600, ps); pw = ctx.measureText(ptxt).width + 24; }
+      const maxW = rx + fullW - 28 - tx - pw;
+      const ns = fitSize(ctx, a.name, maxW, Math.min(first ? 52 : 42, rowH * 0.3), 20, 800), as = Math.max(18, ns * 0.64);
+      const total = ns + as * 1.3, base = ry + (rowH - total) / 2 + ns * 0.85;
+      ctx.fillStyle = fg; ctx.font = FONT(800, ns); ctx.fillText(clip(ctx, a.name, maxW), tx, base);
+      ctx.globalAlpha = 0.72; ctx.font = FONT(600, as); ctx.fillText(clip(ctx, a.artist, maxW), tx, base + as * 1.3); ctx.globalAlpha = 1;
+      if (s.plays) {
+        ctx.font = FONT(600, ps); ctx.textAlign = 'right'; ctx.globalAlpha = 0.75; ctx.fillStyle = fg;
+        ctx.fillText(ptxt, rx + fullW - 28, ry + rowH / 2 + ps * 0.35); ctx.globalAlpha = 1; ctx.textAlign = 'left';
+      }
     });
     return;
   }
 
-  // ranking
-  const gap = 14, n = items.length, rowH = Math.min(200, (availH - gap * (n - 1)) / n), max = items[0].plays || 1;
+  // grade de capas
+  const cols = n <= 4 ? 2 : 3, rows = Math.ceil(n / cols), gap = 22, cap = s.names ? 84 : 0;
+  const sz = Math.floor(Math.min((fullW - gap * (cols - 1)) / cols, (availH - rows * cap - gap * (rows - 1)) / rows));
+  const gw = cols * sz + gap * (cols - 1), gh = rows * (sz + cap) + gap * (rows - 1);
+  const ox = P + (fullW - gw) / 2, oy = top + Math.max(0, (availH - gh) / 2), rad = Math.min(30, sz * 0.08);
   items.forEach((a, i) => {
-    const rx = P, ry = top + i * (rowH + gap), first = i === 0, pad = 34;
-    rr(ctx, rx, ry, fullW, rowH, Math.min(28, rowH / 2.4));
-    if (first) {
-      const g = ctx.createLinearGradient(rx, ry, rx + fullW, ry);
-      g.addColorStop(0, acc); g.addColorStop(1, hsl(h + 45, 85, 55)); ctx.fillStyle = g;
-    } else ctx.fillStyle = T.dark ? 'rgba(255,255,255,.07)' : 'rgba(20,19,26,.06)';
-    ctx.fill();
-    const fg = first ? (lum(acc) > 0.62 ? '#111' : '#fff') : T.ink;
-    const rs = rowH * 0.4; ctx.font = FONT(900, rs);
-    ctx.fillStyle = first ? fg : (T.dark ? acc : hsl(h, 70, 40));
-    ctx.fillText(String(i + 1).padStart(2, '0'), rx + pad, ry + rowH / 2 + rs * 0.35);
-    const nx = rx + pad + ctx.measureText('00').width + 28;
-    let pw = 0, ptxt = '';
-    if (s.plays) { ptxt = `${a.plays.toLocaleString('pt-BR')} plays`; ctx.font = FONT(600, Math.max(20, Math.min(30, rowH * 0.22))); pw = ctx.measureText(ptxt).width + 24; }
-    const bar = s.plays && rowH >= 96, nameMax = rx + fullW - pad - nx - pw;
-    fitSize(ctx, a.name, nameMax, Math.min(first ? 68 : 54, rowH * (first ? 0.4 : 0.34)), 22, 800);
-    ctx.fillStyle = fg;
-    ctx.fillText(a.name, nx, bar ? ry + rowH * 0.47 : ry + rowH / 2 + rowH * 0.12);
-    if (bar) {
-      const bw = rx + fullW - pad - nx - pw, by = ry + rowH * 0.64;
-      rr(ctx, nx, by, bw, 8, 4); ctx.fillStyle = first ? 'rgba(0,0,0,.18)' : (T.dark ? 'rgba(255,255,255,.12)' : 'rgba(20,19,26,.1)'); ctx.fill();
-      rr(ctx, nx, by, Math.max(10, bw * a.plays / max), 8, 4); ctx.fillStyle = first ? fg : acc; ctx.fill();
-    }
-    if (s.plays) {
-      ctx.font = FONT(600, Math.max(20, Math.min(30, rowH * 0.22))); ctx.textAlign = 'right';
-      ctx.globalAlpha = 0.75; ctx.fillStyle = fg;
-      ctx.fillText(ptxt, rx + fullW - pad, ry + rowH / 2 + rowH * 0.09);
-      ctx.globalAlpha = 1; ctx.textAlign = 'left';
+    const x = ox + (i % cols) * (sz + gap), cy = oy + Math.floor(i / cols) * (sz + cap + gap);
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 34; ctx.shadowOffsetY = 14;
+    rr(ctx, x, cy, sz, sz, rad); ctx.fillStyle = '#000'; ctx.fill(); ctx.restore();
+    drawCover(ctx, a, x, cy, sz, rad, h);
+    const bs = Math.max(36, sz * 0.15), bx = x + 14 + bs / 2, by = cy + 14 + bs / 2;
+    ctx.beginPath(); ctx.arc(bx, by, bs / 2, 0, Math.PI * 2);
+    ctx.fillStyle = i === 0 ? acc : 'rgba(0,0,0,.65)'; ctx.fill();
+    ctx.fillStyle = i === 0 && lum(acc) > 0.62 ? '#111' : '#fff'; ctx.font = FONT(900, bs * 0.55); ctx.textAlign = 'center';
+    ctx.fillText(String(i + 1), bx, by + bs * 0.2); ctx.textAlign = 'left';
+    if (s.names) {
+      const fs = Math.max(18, Math.min(26, sz * 0.085));
+      ctx.font = FONT(800, fs); ctx.fillStyle = T.ink; ctx.fillText(clip(ctx, a.name, sz), x, cy + sz + fs + 10);
+      ctx.font = FONT(600, fs * 0.86); ctx.globalAlpha = 0.65;
+      ctx.fillText(clip(ctx, s.plays ? `${a.artist} · ${a.plays.toLocaleString('pt-BR')} plays` : a.artist, sz), x, cy + sz + fs + 10 + fs * 1.2);
+      ctx.globalAlpha = 1;
     }
   });
 }
 
 async function renderPoster(a, p) {
-  render(`<div class="spinner"></div><p class="center">Buscando seus artistas…</p>`);
+  render(`<div class="spinner"></div><p class="center">Buscando seus álbuns…</p>`);
   let d;
-  try { d = await loadUser(a, p); } catch (e) { return renderForm({ a, p }, errorMessage(e, a)); }
-  if (!d.artists.length) return renderForm({ a, p }, `${d.user} não tem scrobbles em "${periodLabel(p)}". Tenta um período maior.`);
-  history.replaceState(null, '', `${BASE_URL}?${new URLSearchParams({ v: 'img', a: d.user, p })}`);
+  try { d = await loadAlbums(a, p); } catch (e) { return renderForm({ a, p }, errorMessage(e, a)); }
+  if (!d.albums.length) return renderForm({ a, p }, `${d.user} não tem álbuns ouvidos em "${periodLabel(p)}". Tenta um período maior.`);
+  const setUrl = per => history.replaceState(null, '', `${BASE_URL}?${new URLSearchParams({ v: 'img', a: d.user, p: per })}`);
+  setUrl(p);
   let s;
-  try { s = { ...POSTER_DEFAULTS, ...JSON.parse(local.get('poster') || '{}') }; } catch { s = { ...POSTER_DEFAULTS }; }
+  try { s = { ...POSTER_DEFAULTS, ...JSON.parse(local.get('poster2') || '{}') }; } catch { s = { ...POSTER_DEFAULTS }; }
   s.p = p;
-  const avatarImg = await loadImg(d.img);
 
   const seg = (k, label, opts) => `<label>${label}</label><div class="chips" data-k="${k}">${opts.map(([v, l]) =>
     `<button type="button" class="chip" data-v="${v}" aria-pressed="${String(v) === String(s[k])}">${l}</button>`).join('')}</div>`;
+  const chk = (id, on, label) => `<label class="check"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}> ${label}</label>`;
   render(`
-    <h1 class="center">Seu top de artistas</h1>
-    <p class="center">Monte a imagem do jeito que quiser e baixe pra postar.</p>
+    <h1 class="center">Seus álbuns mais ouvidos</h1>
+    <p class="center">Monte a imagem do jeito que quiser e exporte pra postar.</p>
     <div class="poster-wrap"><canvas id="cv" aria-label="Prévia da imagem"></canvas></div>
     <div class="row">
       <button class="btn" id="dl">Baixar PNG</button>
@@ -587,41 +611,38 @@ async function renderPoster(a, p) {
       <input type="text" id="t" maxlength="40" value="${esc(s.title)}" spellcheck="false">
       ${seg('p', 'Período', PERIODS.map(x => [x.id, x.label]))}
       ${seg('fmt', 'Formato', Object.entries(FORMATS).map(([k, v]) => [k, v[0]]))}
-      ${seg('layout', 'Layout', [['ranking', 'Ranking'], ['mosaico', 'Mosaico']])}
-      ${seg('n', 'Quantidade de artistas', [[5, '5'], [8, '8'], [10, '10']])}
+      ${seg('layout', 'Layout', [['grade', 'Grade de capas'], ['lista', 'Lista']])}
+      ${seg('n', 'Quantidade de álbuns', [[4, '4'], [6, '6'], [9, '9']])}
       ${seg('theme', 'Tema', Object.entries(THEMES).map(([k, v]) => [k, v.label]))}
       <label>Cor de destaque</label>
-      <div class="swatches" id="sws">
+      <div class="swatches">
         ${SWATCHES.map(c => `<button type="button" class="sw" data-c="${c}" style="background:${c}" aria-label="${c}" aria-pressed="${c === s.accent}"></button>`).join('')}
         <input type="color" id="col" value="${s.accent}" aria-label="Cor personalizada">
       </div>
-      <label class="check"><input type="checkbox" id="pl" ${s.plays ? 'checked' : ''}> Mostrar quantidade de plays</label>
-      <label class="check"><input type="checkbox" id="av" ${s.avatar ? 'checked' : ''}> Mostrar minha foto</label>
+      ${chk('nm', s.names, 'Mostrar nome do álbum e do artista (na grade)')}
+      ${chk('pl', s.plays, 'Mostrar quantidade de plays')}
+      ${chk('av', s.avatar, 'Mostrar minha foto')}
     </div>
     <button class="btn ghost" id="back" style="margin-top:20px">Voltar</button>`);
 
   const cv = document.getElementById('cv'), msg = document.getElementById('msg'), ctl = document.getElementById('ctl');
-  const draw = () => drawPoster(cv, d, s, avatarImg);
-  const save = () => local.set('poster', JSON.stringify({ ...s, p: undefined }));
+  const draw = () => drawPoster(cv, d, s);
+  const save = () => local.set('poster2', JSON.stringify({ ...s, p: undefined }));
   const press = (sel, test) => ctl.querySelectorAll(sel).forEach(b => b.setAttribute('aria-pressed', test(b)));
   draw();
 
   ctl.addEventListener('click', async ev => {
     const sw = ev.target.closest('.sw'), chip = ev.target.closest('.chip');
-    if (sw) {
-      s.accent = sw.dataset.c; document.getElementById('col').value = s.accent;
-      press('.sw', b => b === sw); save(); return draw();
-    }
+    if (sw) { s.accent = sw.dataset.c; document.getElementById('col').value = s.accent; press('.sw', b => b === sw); save(); return draw(); }
     if (!chip) return;
     const k = chip.parentElement.dataset.k, v = chip.dataset.v;
     if (k === 'p') {
       msg.textContent = ''; cv.style.opacity = 0.4;
       try {
-        const nd = await loadUser(d.user, v);
-        if (!nd.artists.length) throw Object.assign(new Error('vazio'), { code: 'empty' });
-        d = nd; s.p = v; history.replaceState(null, '', `${BASE_URL}?${new URLSearchParams({ v: 'img', a: d.user, p: v })}`);
-        press(`[data-k=p] .chip`, b => b === chip); draw();
-      } catch (e) { msg.textContent = e.code === 'empty' ? `Sem scrobbles em "${periodLabel(v)}". Tenta outro período.` : errorMessage(e, d.user); }
+        const nd = await loadAlbums(d.user, v);
+        if (!nd.albums.length) throw Object.assign(new Error('vazio'), { code: 'empty' });
+        d = nd; s.p = v; setUrl(v); press('[data-k=p] .chip', b => b === chip); draw();
+      } catch (e) { msg.textContent = e.code === 'empty' ? `Sem álbuns em "${periodLabel(v)}". Tenta outro período.` : errorMessage(e, d.user); }
       cv.style.opacity = 1; return;
     }
     s[k] = k === 'n' ? +v : v; save();
@@ -629,11 +650,10 @@ async function renderPoster(a, p) {
   });
   document.getElementById('t').oninput = e => { s.title = e.target.value; save(); draw(); };
   document.getElementById('col').oninput = e => { s.accent = e.target.value; press('.sw', () => false); save(); draw(); };
-  document.getElementById('pl').onchange = e => { s.plays = e.target.checked; save(); draw(); };
-  document.getElementById('av').onchange = e => { s.avatar = e.target.checked; save(); draw(); };
+  [['nm', 'names'], ['pl', 'plays'], ['av', 'avatar']].forEach(([id, k]) => document.getElementById(id).onchange = e => { s[k] = e.target.checked; save(); draw(); });
 
   const toBlob = () => new Promise(r => cv.toBlob(r, 'image/png'));
-  const fname = () => `top-artistas-${d.user}.png`;
+  const fname = () => `top-albuns-${d.user}.png`;
   async function download() {
     const b = await toBlob(); if (!b) return msg.textContent = 'Não consegui gerar a imagem.';
     const u = URL.createObjectURL(b), l = document.createElement('a');
@@ -644,7 +664,7 @@ async function renderPoster(a, p) {
   if (sh) sh.onclick = async () => {
     const b = await toBlob(); if (!b) return;
     const f = new File([b], fname(), { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [f] })) navigator.share({ files: [f], title: 'Meus artistas do momento' }).catch(() => {});
+    if (navigator.canShare && navigator.canShare({ files: [f] })) navigator.share({ files: [f], title: s.title }).catch(() => {});
     else download();
   };
   document.getElementById('back').onclick = () => { history.replaceState(null, '', BASE_URL); renderForm({ a: d.user, p: s.p }); };
@@ -656,7 +676,7 @@ async function renderPoster(a, p) {
   const q = new URLSearchParams(location.search);
   const a = q.get('a'), b = q.get('b');
   const p = PERIODS.some(x => x.id === q.get('p')) ? q.get('p') : '1month';
-  if (a && q.get('v') === 'img') renderPoster(a, p);
+  if (a && q.get('v') === 'img') renderPoster(a, q.get('p') ? p : '7day');
   else if (a && b) run(a, b, p);
   else if (a) renderInvite(a, p);
   else renderForm();
