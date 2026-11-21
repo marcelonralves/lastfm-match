@@ -386,7 +386,7 @@ const THEMES = {
   claro: { label: 'Claro', base: '#f4f0e9', ink: '#15141a', dark: false }
 };
 const SWATCHES = ['#ff4d6d', '#ff8a3d', '#ffd23f', '#3ddc97', '#35b6ff', '#8b5cf6', '#ff5ccf'];
-const POSTER_DEFAULTS = { fmt: 'story', layout: 'grade', theme: 'noite', n: 9, accent: '#ff4d6d', plays: true, names: true, avatar: true, title: 'Meus álbuns da semana' };
+const POSTER_DEFAULTS = { fmt: 'story', layout: 'grade', theme: 'noite', n: 9, accent: '#ff4d6d', plays: true, names: true, avatar: true, showTitle: true, title: 'Meus álbuns da semana' };
 
 const hexRgb = h => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 const rgba = (h, a) => { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; };
@@ -500,10 +500,12 @@ function drawPoster(cv, d, s) {
   ctx.fillStyle = T.dark ? acc : hsl(h, 70, 35); ctx.fillText(tag, P + 28, y + 37);
   spaced(ctx, 0); y += 56 + (story ? 48 : 34);
 
-  const title = wrapFit(ctx, s.title || ' ', W - 2 * P, 2, story ? 108 : 80, 48, 900);
-  spaced(ctx, -2); ctx.fillStyle = T.ink;
-  title.lines.forEach((l, i) => ctx.fillText(l, P, y + title.size * 0.86 + i * title.size * 1.04));
-  spaced(ctx, 0); y += title.lines.length * title.size * 1.04 + 24;
+  if (s.showTitle && s.title.trim()) {
+    const title = wrapFit(ctx, s.title, W - 2 * P, 2, story ? 108 : 80, 48, 900);
+    spaced(ctx, -2); ctx.fillStyle = T.ink;
+    title.lines.forEach((l, i) => ctx.fillText(l, P, y + title.size * 0.86 + i * title.size * 1.04));
+    spaced(ctx, 0); y += title.lines.length * title.size * 1.04 + 24;
+  } else y -= (story ? 48 : 34) - 28;
 
   const av = story ? 72 : 60;
   if (s.avatar) {
@@ -619,6 +621,7 @@ async function renderPoster(a, p) {
         ${SWATCHES.map(c => `<button type="button" class="sw" data-c="${c}" style="background:${c}" aria-label="${c}" aria-pressed="${c === s.accent}"></button>`).join('')}
         <input type="color" id="col" value="${s.accent}" aria-label="Cor personalizada">
       </div>
+      ${chk('st', s.showTitle, 'Mostrar título')}
       ${chk('nm', s.names, 'Mostrar nome do álbum e do artista (na grade)')}
       ${chk('pl', s.plays, 'Mostrar quantidade de plays')}
       ${chk('av', s.avatar, 'Mostrar minha foto')}
@@ -650,7 +653,7 @@ async function renderPoster(a, p) {
   });
   document.getElementById('t').oninput = e => { s.title = e.target.value; save(); draw(); };
   document.getElementById('col').oninput = e => { s.accent = e.target.value; press('.sw', () => false); save(); draw(); };
-  [['nm', 'names'], ['pl', 'plays'], ['av', 'avatar']].forEach(([id, k]) => document.getElementById(id).onchange = e => { s[k] = e.target.checked; save(); draw(); });
+  [['st', 'showTitle'], ['nm', 'names'], ['pl', 'plays'], ['av', 'avatar']].forEach(([id, k]) => document.getElementById(id).onchange = e => { s[k] = e.target.checked; save(); draw(); });
 
   const toBlob = () => new Promise(r => cv.toBlob(r, 'image/png'));
   const fname = () => `top-albuns-${d.user}.png`;
